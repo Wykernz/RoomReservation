@@ -28,7 +28,7 @@ describe("Login page", () => {
 
     // Fill in the form
     await user.type(screen.getByPlaceholderText("you@gmail.com"), "test@gmail.com");
-    await user.type(screen.getByLabelText(/password/i), "wrongpass");
+    await user.type(screen.getByLabelText(/^Password$/), "wrongpass");
 
     // Click submit
     await user.click(screen.getByRole("button", { name: /log in/i }));

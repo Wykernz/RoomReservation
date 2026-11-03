@@ -1,35 +1,59 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../supabase";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
+  const [error, setError] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/login`,
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setMessage("");
+    setBusy(true);
+
+    if (!/^[\w.%+-]+@gmail\.com$/i.test(email.trim())) {
+      setError(true);
+      setMessage("Please enter a valid @gmail.com email.");
+      setBusy(false);
+      return;
+    }
+
+    const { error: requestError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/reset-password`,
     });
-    setMessage(error ? error.message : "✅ Check your email for a reset link.");
+    setError(Boolean(requestError));
+    setMessage(requestError?.message || "Check your email for a password reset link.");
+    setBusy(false);
   }
 
   return (
-    <div style={{ maxWidth: 420, margin: "80px auto", padding: 24 }}>
-      <h2>Forgot password?</h2>
-      {message && <div className="alert">{message}</div>}
-
-      <form onSubmit={handleSubmit}>
-        <label>Email</label>
-        <input type="email" value={email}
-               onChange={(e) => setEmail(e.target.value)} required />
-
-        <button className="btn success" type="submit" style={{ marginTop: 16 }}>
-          Send Reset Email
-        </button>
-      </form>
-
-      <p><Link to="/login">Back to login</Link></p>
-    </div>
+    <main className="app-page">
+      <header className="container page-header">
+        <Link className="brand" to="/"><span className="brand-mark">R</span>Room Reservation</Link>
+        <ThemeToggle />
+      </header>
+      <div className="container auth-wrap">
+        <section className="card auth-card">
+          <span className="eyebrow">Account recovery</span>
+          <h1>Forgot your password?</h1>
+          <p>Enter your account email and we’ll send you a secure reset link.</p>
+          {message && <div className={`alert ${error ? "error" : "success"}`} role="status">{message}</div>}
+          <form className="auth-form" onSubmit={handleSubmit}>
+            <div className="field">
+              <label htmlFor="recovery-email">Email</label>
+              <input id="recovery-email" type="email" placeholder="you@gmail.com"
+                value={email} onChange={(event) => setEmail(event.target.value)} required />
+            </div>
+            <button className="button" type="submit" disabled={busy}>
+              {busy ? "Sending..." : "Send Reset Link"}
+            </button>
+          </form>
+          <p className="auth-footer"><Link to="/login">Back to login</Link></p>
+        </section>
+      </div>
+    </main>
   );
 }

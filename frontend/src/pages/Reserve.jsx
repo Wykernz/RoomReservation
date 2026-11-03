@@ -1,111 +1,101 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { todayString } from "../utils";
 
-export default function Reserve() {
+export default function Reserve({ user }) {
+  const search = new URLSearchParams(window.location.search);
   const [rooms, setRooms] = useState([]);
-  const [roomId, setRoomId] = useState("");
-  const [date, setDate] = useState(todayString());
+  const [roomId, setRoomId] = useState(search.get("room") || "");
+  const [date, setDate] = useState(
+    search.get("date") && search.get("date") >= todayString() ? search.get("date") : todayString()
+  );
   const [start, setStart] = useState("08:00");
   const [end, setEnd] = useState("09:00");
   const [purpose, setPurpose] = useState("");
   const [message, setMessage] = useState("");
-  const navigate = useNavigate();
+  const [error, setError] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    supabase.from("rooms").select("*").order("name").then(({ data }) => setRooms(data || []));
+    let active = true;
+    supabase.from("rooms").select("id,name,capacity").order("name")
+      .then(({ data, error: queryError }) => {
+        if (!active) return;
+        if (queryError) setMessage(queryError.message);
+        else setRooms(data || []);
+      });
+    return () => { active = false; };
   }, []);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function handleSubmit(event) {
+    event.preventDefault();
     setMessage("");
+    setBusy(true);
+    const fail = (text) => { setError(true); setMessage(text); setBusy(false); };
 
-    if (start >= end) {
-      setMessage("End time must be after start time.");
-      return;
-    }
+    if (!roomId) return fail("Please choose a room.");
+    if (start < "08:00" || end > "17:00") return fail("Reservations must be between 8:00 AM and 5:00 PM.");
+    if (start >= end) return fail("End time must be after start time.");
 
-    // 1. Check for conflicts
-    const { data: conflicts } = await supabase
+    const { data: conflicts, error: conflictError } = await supabase
       .from("bookings")
       .select("id")
-      .eq("room_id", roomId)
+      .eq("room_id", Number(roomId))
       .eq("date", date)
       .in("status", ["pending", "approved"])
       .lt("start_time", end)
       .gt("end_time", start);
+    if (conflictError) return fail(conflictError.message);
+    if (conflicts.length) return fail("That time is already booked for this room.");
 
-    if (conflicts && conflicts.length > 0) {
-      setMessage("❌ That time is already booked for this room.");
-      return;
-    }
-
-    // 2. Get the logged-in user
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/login");
-      return;
-    }
-
-    // 3. Insert the booking
-    const { error } = await supabase.from("bookings").insert({
+    const { error: insertError } = await supabase.from("bookings").insert({
       room_id: Number(roomId),
-      user_id: session.user.id,
+      user_id: user.id,
       date,
       start_time: start,
       end_time: end,
-      purpose,
+      purpose: purpose.trim(),
       status: "pending",
     });
+    if (insertError) return fail(insertError.message);
 
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    setMessage("✅ Reservation submitted!");
+    setError(false);
+    setMessage("Reservation submitted for approval.");
     setPurpose("");
+    setBusy(false);
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 500 }}>
-      <h2>📝 Reserve a Room</h2>
-
-      {message && <div className="alert">{message}</div>}
-
-      <form onSubmit={handleSubmit}>
-        <label>Room</label>
-        <select value={roomId} onChange={(e) => setRoomId(e.target.value)} required>
-          <option value="">Select a room</option>
-          {rooms.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name} ({r.capacity} seats)
-            </option>
-          ))}
-        </select>
-
-        <label>Date</label>
-        <input type="date" value={date} min={todayString()}
-               onChange={(e) => setDate(e.target.value)} required />
-
-        <label>Start Time</label>
-        <input type="time" min="08:00" max="17:00" step="900"
-               value={start} onChange={(e) => setStart(e.target.value)} required />
-
-        <label>End Time</label>
-        <input type="time" min="08:00" max="17:00" step="900"
-               value={end} onChange={(e) => setEnd(e.target.value)} required />
-
-        <label>Purpose</label>
-        <input type="text" value={purpose}
-               onChange={(e) => setPurpose(e.target.value)}
-               placeholder="Example: Math Class" required />
-
-        <button className="btn success" type="submit" style={{ marginTop: 16 }}>
-          Request Reservation
-        </button>
-      </form>
+    <div className="stack">
+      <div className="section-heading">
+        <div><span className="eyebrow">New request</span><h1>Reserve a Room</h1>
+          <p>Choose an open date and time between 8:00 AM and 5:00 PM.</p></div>
+      </div>
+      <section className="card panel">
+        {message && <div className={`alert ${error ? "error" : "success"}`} role="status">{message}</div>}
+        <form onSubmit={handleSubmit}>
+          <div className="field"><label htmlFor="room">Room</label>
+            <select id="room" value={roomId} onChange={(event) => setRoomId(event.target.value)} required>
+              <option value="">Select a room</option>
+              {rooms.map((room) => <option key={room.id} value={room.id}>{room.name} ({room.capacity} seats)</option>)}
+            </select></div>
+          <div className="form-grid">
+            <div className="field"><label htmlFor="date">Date</label>
+              <input id="date" type="date" min={todayString()} value={date}
+                onChange={(event) => setDate(event.target.value)} required /></div>
+            <div className="field"><label htmlFor="purpose">Purpose</label>
+              <input id="purpose" value={purpose} onChange={(event) => setPurpose(event.target.value)}
+                placeholder="Example: Math class" required /></div>
+            <div className="field"><label htmlFor="start">Start time</label>
+              <input id="start" type="time" min="08:00" max="17:00" step="900" value={start}
+                onChange={(event) => setStart(event.target.value)} required /></div>
+            <div className="field"><label htmlFor="end">End time</label>
+              <input id="end" type="time" min="08:00" max="17:00" step="900" value={end}
+                onChange={(event) => setEnd(event.target.value)} required /></div>
+          </div>
+          <button className="button" type="submit" disabled={busy}>{busy ? "Submitting…" : "Request Reservation"}</button>
+        </form>
+      </section>
     </div>
   );
 }
